@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Hintergrund: abgerundetes Quadrat, terrakotta -->
+  <rect width="1024" height="1024" rx="56" ry="56" fill="#CC785C"/>
+
+  <!-- Waveform-Balken (oberer Bereich, asymmetrisch, unterschiedliche Höhen) -->
+  <g fill="#F5ECD7">
+    <rect x="146" y="298" width="46" height="156" rx="23"/>
+    <rect x="210" y="232" width="46" height="288" rx="23"/>
+    <rect x="274" y="172" width="46" height="408" rx="23"/>
+    <rect x="338" y="262" width="46" height="228" rx="23"/>
+    <rect x="402" y="138" width="46" height="476" rx="23"/>
+    <rect x="466" y="210" width="46" height="332" rx="23"/>
+    <rect x="530" y="280" width="46" height="192" rx="23"/>
+    <rect x="594" y="158" width="46" height="436" rx="23"/>
+    <rect x="658" y="226" width="46" height="300" rx="23"/>
+    <rect x="722" y="304" width="46" height="144" rx="23"/>
+    <rect x="786" y="252" width="46" height="248" rx="23"/>
+    <rect x="850" y="320" width="46" height="112" rx="23"/>
+  </g>
+
+  <!-- "Voice" – Serif, fett, creme -->
+  <text x="512" y="790"
+        font-family="Georgia, 'Times New Roman', 'Hoefler Text', serif"
+        font-size="180"
+        font-weight="700"
+        fill="#F5ECD7"
+        text-anchor="middle"
+        letter-spacing="2">Voice</text>
+
+  <!-- "Shift" – Serif, kursiv, dunkel -->
+  <text x="512" y="936"
+        font-family="Georgia, 'Times New Roman', 'Hoefler Text', serif"
+        font-size="148"
+        font-style="italic"
+        font-weight="500"
+        fill="#2C2C2A"
+        text-anchor="middle"
+        letter-spacing="1">Shift</text>
+</svg>
