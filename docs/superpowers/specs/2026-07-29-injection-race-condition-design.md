@@ -11,7 +11,7 @@ häufig bei langen Nachrichten.
 
 ### Ursache (belegt)
 
-`menu_bar.py:245` startet pro Aufnahme einen eigenen Thread für
+`menu_bar.py:237` startet pro Aufnahme einen eigenen Thread für
 `_process` (Transkription + Injection). Es gibt keine Serialisierung. Der
 Injector führt aber in `_activate_and_type` (`injector.py:173-197`) einen
 kritischen Abschnitt ohne Lock aus:
@@ -61,7 +61,7 @@ nahezu stillen Aufnahmen.
 - Die Hintergrund-Fenster-Funktion an sich. Sie hat den fehlenden Lock nur
   sichtbar gemacht, nicht verursacht.
 - Ghostty `clipboard-paste-protection` bei mehrzeiligem Text.
-  `normalize_transcript` (`transcriber.py:11`) macht Transkripte bereits
+  `normalize_transcript` (`transcriber.py:12`) macht Transkripte bereits
   einzeilig; die Schutzabfrage greift gar nicht.
 
 ## Lösung
@@ -111,7 +111,7 @@ Ausdrücklich **keine** Mindestlänge: im Log stehen `'Mach!'` (5 Zeichen) und
 `'Äh...'` als echte Diktate. Eine Längenheuristik würde sie fressen.
 
 Zusätzlich: bei `peak == 0` gar nicht erst transkribieren. Der Recorder misst
-den Peak bereits (`recorder.py:96`), gibt ihn aber noch nicht nach außen.
+den Peak bereits (`recorder.py:98`), gibt ihn aber noch nicht nach außen.
 
 ### Fix 4 — Versionskontrolle
 

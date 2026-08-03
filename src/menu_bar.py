@@ -20,6 +20,7 @@ from recorder import AudioRecorder
 from transcriber import Transcriber
 from injector import TextInjector
 from hotkey import HotkeyListener
+from pipeline import SerialPipeline
 
 _ASSETS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -79,6 +80,15 @@ class VoiceShiftApp(rumps.App):
         self._cmd_queue = queue.Queue()
         self._worker    = threading.Thread(target=self._recording_worker, daemon=True)
         self._worker.start()
+
+        # Transkription+Injection laufen STRENG NACHEINANDER auf einer eigenen
+        # Pipeline. Früher bekam jede Aufnahme ihren eigenen Thread – zwei
+        # gleichzeitige Injections verschränkten dann den Clipboard-Abschnitt
+        # des Injectors und ein altes Diktat landete im Zielfenster.
+        # Siehe pipeline.py für den belegten Ablauf.
+        self._process_pipeline = SerialPipeline(
+            self._process_item, name="voiceshift-process")
+        self._process_pipeline.start()
 
         # Bilder vorladen (alle als Template, keine Disk-I/O pro Frame)
         self._static_image = (_load_template_image(ICON_SYMBOL)
@@ -232,9 +242,10 @@ class VoiceShiftApp(rumps.App):
                     # Ziel-PID für DIESE Aufnahme festhalten, bevor eine neue Aufnahme
                     # sie überschreiben könnte, und an den Verarbeitungs-Thread geben.
                     target_pid = self._target_pid
-                    # Transkription+Injection in eigenem Thread, damit der Worker
-                    # sofort für die nächste Aufnahme frei ist.
-                    threading.Thread(target=self._process, args=(audio_path, target_pid), daemon=True).start()
+                    # Einreihen statt Thread starten: der Worker ist sofort
+                    # wieder frei für die nächste Aufnahme, die Verarbeitung
+                    # läuft aber serialisiert und in Sprechreihenfolge.
+                    self._process_pipeline.submit((audio_path, target_pid))
             except Exception as e:
                 if cmd == "start":
                     with self._state_lock:
@@ -269,6 +280,11 @@ class VoiceShiftApp(rumps.App):
         # os._exit umgeht den festsitzenden Thread und die Python-Cleanup-Phase,
         # die selbst auf dem CoreAudio-Lock hängen bleiben würde.
         os._exit(1)
+
+    def _process_item(self, item):
+        """Pipeline-Einstiegspunkt – ein Eintrag pro Aufnahme, nie nebenläufig."""
+        audio_path, target_pid = item
+        self._process(audio_path, target_pid)
 
     def _process(self, audio_path, target_pid=None):
         _log(f"_process: starte Transkription von {audio_path} (lang={self.current_lang}, target_pid={target_pid})")
