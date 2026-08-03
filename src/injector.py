@@ -193,8 +193,24 @@ class TextInjector:
                  f"Clipboard (evtl. wartet ein Paste-Dialog).")
             return False
         # confirmed True (nachgewiesen) oder None (nicht prüfbar) → sicher zurück.
-        self._set_clipboard(original)
+        self._restore_clipboard(original, text)
         return True
+
+    def _restore_clipboard(self, original, ours: str):
+        """Altes Clipboard zurückschreiben – aber nur, wenn es noch unseres ist.
+
+        Zwischen dem Sichern und dem Zurückschreiben liegen bis zu ~0.6 s
+        Schonfrist. Kopiert der Nutzer in dieser Zeit selbst etwas, ist der
+        gesicherte Stand veraltet: ihn zurückzuschreiben würde die frische
+        Kopie des Nutzers ersatzlos vernichten. Steht also etwas anderes als
+        unser Diktat im Clipboard, hat jemand anders es übernommen – Finger weg.
+        """
+        current = self._get_clipboard()
+        if current != ours:
+            _log("Clipboard wurde zwischenzeitlich von anderer Seite gesetzt – "
+                 "nicht überschrieben.")
+            return
+        self._set_clipboard(original)
 
     def _paste_and_confirm(self, pid: int, text: str):
         """Cmd+V senden und prüfen, ob es angekommen ist.
@@ -271,7 +287,7 @@ class TextInjector:
         self._set_clipboard(text)
         ok = self._paste_frontmost(text)
         time.sleep(self._RESTORE_SETTLE)
-        self._set_clipboard(original)
+        self._restore_clipboard(original, text)
         return ok
 
     def _activate(self, pid: int, timeout: float | None = None) -> bool:

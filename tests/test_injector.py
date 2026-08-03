@@ -421,6 +421,43 @@ def test_spinner_verkuerzt_die_schonfrist_nicht():
         "nach %.3fs" % (restored - inj.paste_at, inj.land_delay))
 
 
+def test_fremde_clipboard_aenderung_wird_nicht_ueberschrieben():
+    """Kopiert der Nutzer WÄHREND der Injection, gehört ihm das Clipboard.
+
+    Der Injector sichert das alte Clipboard und schreibt es nach dem Einfügen
+    zurück. Hat sich in der Zwischenzeit jemand anders eingetragen – typisch:
+    der Nutzer kopiert etwas, während das Diktat noch verarbeitet wird –, dann
+    ist der gesicherte Stand veraltet und darf die frische Kopie nicht killen.
+    """
+    class CopyDuringInjection(FakeInjector):
+        def _paste_frontmost(self, text):
+            ok = super()._paste_frontmost(text)
+            # Der Nutzer drückt jetzt Cmd+C auf etwas anderem.
+            self.clipboard = "FRISCH-KOPIERT"
+            return ok
+
+    inj = CopyDuringInjection(FakeField(readable=False))
+    inj.inject("Mein Diktat", target_pid=42)
+
+    assert inj.clipboard == "FRISCH-KOPIERT", (
+        "Der Injector hat die frische Kopie des Nutzers mit dem veralteten "
+        "gesicherten Stand überschrieben")
+
+
+def test_fremde_clipboard_aenderung_auch_ohne_ziel_pid_geschuetzt():
+    """Gleiche Regel im Fallback-Pfad (kein Zielfenster bekannt)."""
+    class CopyDuringInjection(FakeInjector):
+        def _paste_frontmost(self, text):
+            ok = super()._paste_frontmost(text)
+            self.clipboard = "FRISCH-KOPIERT"
+            return ok
+
+    inj = CopyDuringInjection(FakeField())
+    inj.inject("Mein Diktat")          # ohne target_pid
+
+    assert inj.clipboard == "FRISCH-KOPIERT"
+
+
 def test_ghostty_mit_platzhalter_meldet_nicht_faelschlich_fehler():
     """Claude Code in Ghostty zeigt langen Text als "[Pasted text +N lines]".
 

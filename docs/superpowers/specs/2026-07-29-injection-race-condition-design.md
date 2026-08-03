@@ -86,21 +86,29 @@ Garantien:
 Bewusst in Kauf genommen: eine lange Transkription verzögert die nächste.
 Richtige Reihenfolge schlägt Tempo, und serialisiert werden muss ohnehin.
 
-### Fix 2 — Clipboard nur bei Nachweis zurücksetzen (`injector.py:195-197`)
+### Fix 2 — Fremde Clipboard-Änderungen respektieren (`injector.py`)
 
-Heute wird auch bei `confirmed is None` („nicht prüfbar") das alte Clipboard
-zurückgeschrieben. Dieser Fall trifft Ghostty systematisch: der Claude-Code-
-Spinner tickt, `AXValue` ändert sich, `changed=True` → `None` → Restore nach
-0,6 s, möglicherweise bevor Ghostty gelesen hat. Der Kommentar bei
-`injector.py:240-254` beschreibt das Problem bereits, zieht aber die falsche
-Konsequenz.
+**Während der Umsetzung eingeengt.** Ursprünglich war geplant, das alte
+Clipboard nur noch bei bewiesenem `True` zurückzuschreiben und bei `None`
+das Diktat liegen zu lassen. Das wurde verworfen:
 
-Neu: nur bei bewiesenem `True` zurücksetzen. Bei `None` und `False` bleibt das
-Diktat im Clipboard.
+- Es hätte vier bestehende, gemessene Tests gebrochen
+  (`tests/test_injector.py`), die den `None`-Fall bewusst als Erfolg
+  behandeln — für Electron und Claude Code (`[Pasted text +N lines]`) ist er
+  der Normalfall, nicht die Ausnahme.
+- Es hätte bei fast jedem Diktat das Clipboard des Nutzers überschrieben.
+- Nach Fix 1 ist die Begründung großenteils entfallen: das gesicherte
+  „Original" ist jetzt garantiert das echte Clipboard des Nutzers und kein
+  paralleles Diktat mehr. Das Log belegt den verbleibenden Restfall nicht.
 
-Abwägung: schlimmstenfalls geht der vorherige Clipboard-Inhalt verloren. Nie
-aber landet ein falscher alter Text im Zielfenster. Das ist die richtige
-Richtung für den Fehlerfall.
+Stattdessen umgesetzt wurde ein Defekt, der unstrittig ist: zwischen Sichern
+und Zurückschreiben liegen bis zu 0,6 s Schonfrist. Kopiert der Nutzer in
+dieser Zeit selbst etwas, überschrieb der Restore die frische Kopie mit dem
+veralteten Stand.
+
+Neu: vor dem Zurückschreiben prüfen, ob überhaupt noch unser Diktat im
+Clipboard steht. Steht etwas anderes drin, hat jemand anders übernommen und
+der Injector fasst es nicht an. Gilt für beide Pfade — mit und ohne Ziel-PID.
 
 ### Fix 3 — Halluzinations-Filter (`transcriber.py`)
 
