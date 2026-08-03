@@ -2,11 +2,17 @@
 """
 Transcriber – ruft whisper.cpp CLI auf und gibt transkribierten Text zurück
 """
+import re
 import subprocess
 import os
 
 WHISPER_BIN = os.path.expanduser("~/.voiceshift/whisper.cpp/build/bin/whisper-cli")
 MODEL_PATH  = os.path.expanduser("~/.voiceshift/models/ggml-small.bin")
+
+# Nichtsprach-Marker, die Whisper bei (fast) stillen Aufnahmen erfindet:
+# "[MUSIK]", "[BLANK_AUDIO]", "(Applaus)". Ein Text, der NUR aus solchen
+# Markern besteht, ist eine Halluzination und darf nicht injiziert werden.
+_MARKER = re.compile(r"[\[(][^\])]*[\])]")
 
 
 def normalize_transcript(text: str) -> str:
@@ -21,6 +27,23 @@ def normalize_transcript(text: str) -> str:
       * In Chat-Apps sendet ein Zeilenumbruch die Nachricht mitten im Satz ab.
     """
     return " ".join(text.split())
+
+
+def is_hallucination(text: str) -> bool:
+    """True, wenn der Text nichts Diktiertes enthält und verworfen gehört.
+
+    Whisper erfindet bei stillen oder fast stillen Aufnahmen Nichtsprach-Marker
+    in Klammern. '[MUSIK]' landete so fünfmal als echter Text im Zielfenster
+    (belegt in /tmp/voiceshift.out.log).
+
+    BEWUSST eng gehalten: verworfen wird nur, was AUSSCHLIESSLICH aus solchen
+    Markern besteht. Keine Mindestlänge – im selben Log stehen 'Mach!' und
+    'Äh...' als echte, gewollte Diktate, die eine Längenheuristik fressen würde.
+    """
+    if not text or not text.strip():
+        return True
+    return not _MARKER.sub("", text).strip()
+
 
 class Transcriber:
     def transcribe(self, audio_path: str, lang: str = "de", delete_after: bool = True) -> str:
@@ -76,5 +99,11 @@ class Transcriber:
                 os.unlink(audio_path)
             except OSError:
                 pass
+
+        if is_hallucination(text):
+            if text:
+                print(f"[VoiceShift/transcriber] Halluzination verworfen: {text!r}",
+                      flush=True)
+            return ""
 
         return text
