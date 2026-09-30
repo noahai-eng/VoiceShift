@@ -101,21 +101,42 @@ class AudioRecorder:
                 self._peak = 0
                 self._samples = 0
             try:
-                self._open_stream()
-            except sd.PortAudioError as e:
-                # PortAudio liest die Geräteliste nur einmal beim Initialisieren
-                # (passiert beim Import von sounddevice). Ändert sich danach die
-                # Gerätelandschaft – Bluetooth-Gerät, Kopfhörer, coreaudiod-Neustart –,
-                # zeigen die gemerkten Device-IDs ins Leere ('!obj' = BadObject) und
-                # JEDER weitere Stream-Open scheitert dauerhaft, auch mit frischem
-                # InputStream: der kaputte Zustand liegt global in der Bibliothek.
-                # Neu-Initialisieren baut die Geräteliste neu auf und heilt den Prozess.
-                _log(f"Stream-Open fehlgeschlagen ({e}) – "
-                     f"PortAudio neu initialisieren und erneut versuchen.")
-                self._teardown_stream()
-                sd._terminate()
-                sd._initialize()
-                self._open_stream()
+                self._open_stream_with_reinit()
+            except Exception:
+                self._discard_sink()
+                raise
+
+    def _discard_sink(self):
+        """Aufnahme-Datei einer gescheiterten Aufnahme wieder entfernen."""
+        with self._sink_lock:
+            sink, self._sink = self._sink, None
+            pcm_path, self._pcm_path = self._pcm_path, None
+        if sink is not None:
+            sink.close()
+        if pcm_path:
+            for p in (pcm_path, meta_path(pcm_path)):
+                try:
+                    os.unlink(p)
+                except FileNotFoundError:
+                    pass
+
+    def _open_stream_with_reinit(self):
+        try:
+            self._open_stream()
+        except sd.PortAudioError as e:
+            # PortAudio liest die Geräteliste nur einmal beim Initialisieren
+            # (passiert beim Import von sounddevice). Ändert sich danach die
+            # Gerätelandschaft – Bluetooth-Gerät, Kopfhörer, coreaudiod-Neustart –,
+            # zeigen die gemerkten Device-IDs ins Leere ('!obj' = BadObject) und
+            # JEDER weitere Stream-Open scheitert dauerhaft, auch mit frischem
+            # InputStream: der kaputte Zustand liegt global in der Bibliothek.
+            # Neu-Initialisieren baut die Geräteliste neu auf und heilt den Prozess.
+            _log(f"Stream-Open fehlgeschlagen ({e}) – "
+                 f"PortAudio neu initialisieren und erneut versuchen.")
+            self._teardown_stream()
+            sd._terminate()
+            sd._initialize()
+            self._open_stream()
 
     def _open_stream(self):
         self._stream = sd.InputStream(

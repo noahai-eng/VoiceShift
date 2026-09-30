@@ -149,3 +149,17 @@ def test_pcm_to_wav_rettet_eine_verwaiste_aufnahme(tmp_path):
 
     assert not pcm.exists()
     assert _read_wav(wav).tolist() == [3, -3, 5]
+
+
+def test_gescheiterter_start_hinterlaesst_keine_datei(tmp_path, monkeypatch):
+    class BrokenStream(FakeStream):
+        def start(self):
+            raise RuntimeError("Mikrofon weg")
+    monkeypatch.setattr(recorder_mod.sd, "InputStream", BrokenStream)
+    rec = AudioRecorder(rec_dir=str(tmp_path))
+
+    with pytest.raises(RuntimeError):
+        rec.start(meta={"lang": "de"})
+
+    assert os.listdir(tmp_path) == []
+    assert rec.finish() is None
