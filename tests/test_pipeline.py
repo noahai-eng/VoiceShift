@@ -105,3 +105,21 @@ def test_fehler_stoppt_die_pipeline_nicht():
     assert done.wait(timeout=5), "Pipeline blieb nach dem Fehler stehen"
 
     assert seen == ["gut1", "gut2"]
+
+
+def test_busy_bis_der_letzte_eintrag_fertig_ist():
+    """Der Watchdog-Neustart wartet darauf – sonst stirbt ein Diktat mitten
+    in der Transkription."""
+    gate = threading.Event()
+    pipe = SerialPipeline(lambda item: gate.wait(2))
+    pipe.start()
+    assert not pipe.busy()
+
+    pipe.submit("A")
+    assert pipe.busy()
+
+    gate.set()
+    deadline = time.time() + 2
+    while pipe.busy() and time.time() < deadline:
+        time.sleep(0.01)
+    assert not pipe.busy()

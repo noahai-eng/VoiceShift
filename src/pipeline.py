@@ -56,6 +56,10 @@ class SerialPipeline:
     def submit(self, item):
         self._queue.put(item)
 
+    def busy(self) -> bool:
+        """True, solange noch ein Eintrag wartet oder gerade verarbeitet wird."""
+        return self._queue.unfinished_tasks > 0
+
     def _run(self):
         while True:
             item = self._queue.get()
