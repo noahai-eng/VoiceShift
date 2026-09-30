@@ -104,6 +104,12 @@ class FakeInjector(TextInjector):
     def _set_clipboard(self, text):
         self.clipboard = text
 
+    def _snapshot_clipboard(self):
+        return self.clipboard
+
+    def _restore_snapshot(self, snapshot):
+        self._set_clipboard(snapshot)
+
 
 class SpinnerField(FakeField):
     """Terminal-TUI, deren Inhalt sich von ALLEIN ändert.
@@ -471,3 +477,67 @@ def test_ghostty_mit_platzhalter_meldet_nicht_faelschlich_fehler():
     inj.wait()
 
     assert inj.clipboard == "ORIGINAL-CLIPBOARD", "Clipboard wieder sauber"
+
+
+# ── Echtes NSPasteboard (privates, nicht das des Nutzers) ─────────────────
+
+import subprocess  # noqa: E402
+
+import AppKit  # noqa: E402
+
+
+class PrivatePasteboardInjector(TextInjector):
+    def __init__(self):
+        self.pb = AppKit.NSPasteboard.pasteboardWithUniqueName()
+
+    def _pasteboard(self):
+        return self.pb
+
+
+def test_bild_im_clipboard_ueberlebt_ein_diktat():
+    """Vorher wurde nur Text gesichert: ein kopierter Screenshot war nach einem
+    Diktat in Ghostty/Electron ersatzlos weg (clearContents ohne Rückschreiben)."""
+    inj = PrivatePasteboardInjector()
+    raw = b"\x89PNG-fake-bild"
+    png = AppKit.NSData.dataWithBytes_length_(raw, len(raw))
+    inj.pb.clearContents()
+    inj.pb.setData_forType_(png, AppKit.NSPasteboardTypePNG)
+
+    snap = inj._snapshot_clipboard()
+    inj._set_clipboard("Diktat")
+    assert inj._get_clipboard() == "Diktat"
+    inj._restore_snapshot(snap)
+
+    got = inj.pb.dataForType_(AppKit.NSPasteboardTypePNG)
+    assert got is not None and bytes(got) == b"\x89PNG-fake-bild"
+    assert inj._get_clipboard() is None
+
+
+def test_text_mit_mehreren_typen_bleibt_vollstaendig():
+    inj = PrivatePasteboardInjector()
+    inj.pb.clearContents()
+    inj.pb.setString_forType_("hallo", AppKit.NSPasteboardTypeString)
+    inj.pb.setString_forType_("<b>hallo</b>", AppKit.NSPasteboardTypeHTML)
+
+    snap = inj._snapshot_clipboard()
+    inj._set_clipboard("Diktat")
+    inj._restore_snapshot(snap)
+
+    assert inj._get_clipboard() == "hallo"
+    assert inj.pb.stringForType_(AppKit.NSPasteboardTypeHTML) == "<b>hallo</b>"
+
+
+def test_haengendes_osascript_blockiert_die_pipeline_nicht(monkeypatch):
+    """Ohne Timeout blockierte ein hängendes 'System Events' den einzigen
+    Pipeline-Worker für immer – alle weiteren Diktate stauten sich still."""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+
+    import injector
+    monkeypatch.setattr(injector.subprocess, "run", fake_run)
+
+    assert TextInjector()._paste_frontmost("x") is False
+    assert seen.get("timeout") and seen["timeout"] <= 10

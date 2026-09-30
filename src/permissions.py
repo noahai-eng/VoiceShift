@@ -9,12 +9,18 @@ def check_and_request():
     lines = ["Berechtigungs-Status:\n"]
 
     # Accessibility testen
-    result = subprocess.run(
-        ["osascript", "-e",
-         'tell application "System Events" to get name of first process'],
-        capture_output=True
-    )
-    if result.returncode == 0:
+    # Läuft auf dem Main-Thread: ohne Timeout friert ein hängendes
+    # "System Events" die ganze Menüleiste ein.
+    try:
+        result = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to get name of first process'],
+            capture_output=True, timeout=5
+        )
+        ok = result.returncode == 0
+    except subprocess.TimeoutExpired:
+        ok = False
+    if ok:
         lines.append("✅  Bedienungshilfen: OK")
     else:
         lines.append("❌  Bedienungshilfen: FEHLT")

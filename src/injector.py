@@ -65,6 +65,8 @@ class TextInjector:
     # Baumsuche nach dem fokussierten Feld (nötig, weil Hintergrund-Safari kein
     # AXFocusedUIElement liefert). Gedeckelt, damit große Bäume nicht bremsen.
     _TREE_MAX_DEPTH = 14
+    # Obergrenze für das Cmd+V per osascript (normal: ~0.1–0.3 s).
+    _OSASCRIPT_TIMEOUT = 5.0
     _TREE_BUDGET    = 1.5
 
     def inject(self, text: str, target_pid: int | None = None) -> bool:
@@ -172,7 +174,7 @@ class TextInjector:
     # ── 3) Zielfenster aktivieren und einfügen ─────────────────────────────
     def _activate_and_type(self, text: str, pid: int) -> bool:
         """Holt die Ziel-App (per PID) nach vorne und fügt den Text per Cmd+V ein."""
-        original = self._get_clipboard()
+        original = self._snapshot_clipboard()
         self._set_clipboard(text)
 
         if not self._activate(pid):
@@ -210,7 +212,7 @@ class TextInjector:
             _log("Clipboard wurde zwischenzeitlich von anderer Seite gesetzt – "
                  "nicht überschrieben.")
             return
-        self._set_clipboard(original)
+        self._restore_snapshot(original)
 
     def _paste_and_confirm(self, pid: int, text: str):
         """Cmd+V senden und prüfen, ob es angekommen ist.
@@ -283,7 +285,7 @@ class TextInjector:
 
     def _paste_with_clipboard(self, text: str) -> bool:
         """Einfügen ins gerade vorderste Fenster (kein Ziel bekannt)."""
-        original = self._get_clipboard()
+        original = self._snapshot_clipboard()
         self._set_clipboard(text)
         ok = self._paste_frontmost(text)
         time.sleep(self._RESTORE_SETTLE)
@@ -358,15 +360,47 @@ class TextInjector:
         if rng is not None:
             self._ax_set(el, AS.kAXSelectedTextRangeAttribute, rng)
 
+    def _pasteboard(self):
+        return AppKit.NSPasteboard.generalPasteboard()
+
     def _get_clipboard(self):
-        pb = AppKit.NSPasteboard.generalPasteboard()
-        return pb.stringForType_(AppKit.NSPasteboardTypeString)
+        return self._pasteboard().stringForType_(AppKit.NSPasteboardTypeString)
 
     def _set_clipboard(self, text):
-        pb = AppKit.NSPasteboard.generalPasteboard()
+        pb = self._pasteboard()
         pb.clearContents()
         if text is not None:
             pb.setString_forType_(text, AppKit.NSPasteboardTypeString)
+
+    def _snapshot_clipboard(self):
+        """ALLE Einträge und Typen sichern – nicht nur Text.
+
+        Früher wurde nur der String gesichert: lag ein Bild oder eine Datei im
+        Clipboard, war es nach einem Diktat per Cmd+V ersatzlos weg.
+        """
+        items = []
+        for item in self._pasteboard().pasteboardItems() or []:
+            types = {}
+            for t in item.types() or []:
+                data = item.dataForType_(t)
+                if data is not None:
+                    types[t] = data
+            if types:
+                items.append(types)
+        return items
+
+    def _restore_snapshot(self, items):
+        pb = self._pasteboard()
+        pb.clearContents()
+        if not items:
+            return
+        restored = []
+        for types in items:
+            item = AppKit.NSPasteboardItem.alloc().init()
+            for t, data in types.items():
+                item.setData_forType_(data, t)
+            restored.append(item)
+        pb.writeObjects_(restored)
 
     def _paste_frontmost(self, text: str) -> bool:
         """Cmd+V ins vorderste Fenster.
@@ -377,7 +411,16 @@ class TextInjector:
         Satz absendet. Cmd+V überträgt den Text in einem Stück und wörtlich.
         """
         script = 'tell application "System Events" to keystroke "v" using command down'
-        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        try:
+            # Mit Timeout: hängt "System Events" (offener Berechtigungsdialog,
+            # nach dem Aufwachen), blockierte sonst der einzige Pipeline-Worker
+            # für immer und alle weiteren Diktate stauten sich still.
+            result = subprocess.run(["osascript", "-e", script],
+                                    capture_output=True, text=True,
+                                    timeout=self._OSASCRIPT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            _log(f"osascript hing > {self._OSASCRIPT_TIMEOUT:.0f}s – abgebrochen")
+            return False
         if result.returncode != 0:
             _log(f"osascript rc={result.returncode} stderr={result.stderr.strip()!r} "
                  f"(typisch: Bedienungshilfen-Permission fehlt)")
