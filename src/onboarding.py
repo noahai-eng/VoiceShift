@@ -28,7 +28,7 @@ STEPS = [
             "1.  Systemeinstellungen öffnen\n"
             "2.  Datenschutz & Sicherheit\n"
             "3.  Mikrofon\n"
-            "4.  Terminal (oder Python) aktivieren ✓\n\n"
+            "4.  VoiceShift aktivieren ✓\n\n"
             "Der Button unten öffnet die Einstellungen direkt."
         ),
         "ok":     "Einstellungen öffnen →",
@@ -43,7 +43,7 @@ STEPS = [
             "1.  Systemeinstellungen öffnen\n"
             "2.  Datenschutz & Sicherheit\n"
             "3.  Bedienungshilfen\n"
-            "4.  Terminal (oder Python) aktivieren ✓\n\n"
+            "4.  VoiceShift aktivieren ✓\n\n"
             "⚠️  Ohne diese Berechtigung wird kein Text eingefügt."
         ),
         "ok":     "Einstellungen öffnen →",

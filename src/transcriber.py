@@ -5,9 +5,35 @@ Transcriber – ruft whisper.cpp CLI auf und gibt transkribierten Text zurück
 import re
 import subprocess
 import os
+import wave
 
 WHISPER_BIN = os.path.expanduser("~/.voiceshift/whisper.cpp/build/bin/whisper-cli")
 MODEL_PATH  = os.path.expanduser("~/.voiceshift/models/ggml-small.bin")
+
+# Kürzer ist ein versehentliches Antippen von Ctrl+Shift, kein Diktat. Whisper
+# erfindet bei solchen Beinahe-Stille-Schnipseln gern echte Sätze
+# ("Vielen Dank.", "Untertitel im Auftrag des ZDF"), die der Klammer-Filter
+# unten nicht erkennt – sie würden eingefügt.
+MIN_SECONDS = 0.4
+
+
+def audio_seconds(path: str) -> float:
+    try:
+        with wave.open(path) as wf:
+            return wf.getnframes() / float(wf.getframerate())
+    except (OSError, wave.Error, ZeroDivisionError):
+        return 0.0
+
+
+def whisper_timeout(seconds: float) -> float:
+    """Obergrenze für whisper-cli, wächst mit der Aufnahme.
+
+    Gemessen (M1, Metal): ~12× schneller als Echtzeit, 5 min Audio in 25 s.
+    Echtzeit + 30 s lässt reichlich Luft für eine ausgelastete GPU; früher
+    fest 60 s, womit ein langes Diktat unter Last komplett verloren war.
+    """
+    return max(60.0, 30.0 + seconds)
+
 
 # Nichtsprach-Marker, die Whisper bei (fast) stillen Aufnahmen erfindet:
 # "[MUSIK]", "[BLANK_AUDIO]", "(Applaus)". Ein Text, der NUR aus solchen
@@ -51,6 +77,17 @@ class Transcriber:
         Transkribiert eine WAV-Datei mit whisper.cpp.
         Gibt den erkannten Text zurück (leer-String wenn nichts erkannt).
         """
+        seconds = audio_seconds(audio_path)
+        if seconds < MIN_SECONDS:
+            print(f"[VoiceShift/transcriber] {seconds:.2f}s – Antippen, kein Diktat "
+                  f"→ verworfen", flush=True)
+            if delete_after:
+                try:
+                    os.unlink(audio_path)
+                except OSError:
+                    pass
+            return ""
+
         if not os.path.exists(WHISPER_BIN):
             raise FileNotFoundError(
                 f"whisper-cli nicht gefunden:\n{WHISPER_BIN}\n\n"
@@ -77,7 +114,8 @@ class Transcriber:
             "-of", out_base,
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=whisper_timeout(seconds))
         if result.returncode != 0:
             print(
                 f"[VoiceShift/transcriber] whisper-cli rc={result.returncode}\n"

@@ -25,12 +25,12 @@ def check_and_request():
     else:
         lines.append("❌  Bedienungshilfen: FEHLT")
         lines.append("    Systemeinstellungen > Datenschutz")
-        lines.append("    > Bedienungshilfen > Terminal ✓")
+        lines.append("    > Bedienungshilfen > VoiceShift ✓")
 
     lines.append("")
     lines.append("🎤  Mikrofon:")
     lines.append("    Systemeinstellungen > Datenschutz")
-    lines.append("    > Mikrofon > Terminal ✓")
+    lines.append("    > Mikrofon > VoiceShift ✓")
     lines.append("")
     lines.append("Tipp: App danach neu starten.")
 

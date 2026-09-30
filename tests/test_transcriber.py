@@ -89,3 +89,50 @@ def test_klammer_im_echten_satz_ist_keine_halluzination():
     """Nur wenn der GANZE Text aus Markern besteht, wird verworfen."""
     assert is_hallucination("Der Ton (Musik) war zu laut.") is False
     assert is_hallucination("[MUSIK] danach bitte weitermachen") is False
+
+
+# ── Aufnahmelänge: Antippen verwerfen, Timeout mitwachsen lassen ─────────
+
+import subprocess  # noqa: E402
+import wave  # noqa: E402
+
+import transcriber as transcriber_mod  # noqa: E402
+from transcriber import Transcriber, whisper_timeout  # noqa: E402
+
+
+def _wav(path, seconds):
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * int(16000 * seconds))
+    return str(path)
+
+
+def test_versehentliches_antippen_geht_nicht_an_whisper(tmp_path, monkeypatch):
+    """Whisper erfindet bei Beinahe-Stille echte Sätze ('Vielen Dank.'),
+    die der Klammer-Filter nicht erkennt und die dann eingefügt würden."""
+    def boom(*a, **kw):
+        raise AssertionError("whisper darf für ein Antippen nicht laufen")
+    monkeypatch.setattr(transcriber_mod.subprocess, "run", boom)
+
+    assert Transcriber().transcribe(_wav(tmp_path / "a.wav", 0.2),
+                                    delete_after=False) == ""
+
+
+def test_timeout_waechst_mit_der_aufnahmelaenge(tmp_path, monkeypatch):
+    """Fest 60 s: ein 10-Minuten-Diktat auf ausgelasteter GPU wäre verloren."""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(transcriber_mod.subprocess, "run", fake_run)
+
+    Transcriber().transcribe(_wav(tmp_path / "b.wav", 1.0), delete_after=False)
+    assert seen["timeout"] == whisper_timeout(1.0)
+
+
+def test_timeout_werte():
+    assert whisper_timeout(1) >= 60                 # kurze Diktate wie bisher
+    assert whisper_timeout(600) >= 600              # 10 min: mind. Echtzeit
