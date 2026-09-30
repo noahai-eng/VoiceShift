@@ -5,6 +5,7 @@ Läuft im Hintergrund-Thread, blockiert nicht den Haupt-Thread.
 """
 import sys
 import threading
+import time
 
 def _log(msg):
     print(f"[VoiceShift/hotkey] {msg}", flush=True)
@@ -26,6 +27,7 @@ try:
         kCGEventOtherMouseDown, kCGEventOtherMouseUp,
         kCGEventLeftMouseDragged, kCGEventRightMouseDragged, kCGEventOtherMouseDragged,
         kCGEventScrollWheel,
+        CGEventSourceFlagsState, kCGEventSourceStateHIDSystemState,
     )
     import CoreFoundation
     QUARTZ_AVAILABLE = True
@@ -61,11 +63,63 @@ _TAP_DISABLED_BY_USER    = 0xFFFFFFFF   # kCGEventTapDisabledByUserInput
 BOTH_MODIFIERS = None  # wird nach Import gesetzt
 
 class HotkeyListener:
+    # Während der Aufnahme: so oft wird der physische Tastenstatus abgeglichen.
+    _RESYNC_INTERVAL = 0.25
+
     def __init__(self, on_press, on_release):
         self.on_press   = on_press
         self.on_release = on_release
         self._thread    = None
         self._active    = False   # Debounce: verhindert mehrfaches Auslösen
+        self._flag_lock = threading.Lock()
+        self._press_gen = 0       # beendet den Abgleich-Thread einer alten Aufnahme
+
+    # ── Entscheidungslogik (ohne Quartz testbar) ─────────────────────────
+    def _on_flags(self, ctrl: bool, shift: bool):
+        if ctrl and shift:
+            self._press()
+        else:
+            self._release()
+
+    def _press(self):
+        with self._flag_lock:
+            if self._active:
+                return
+            self._active = True
+            self._press_gen += 1
+            gen = self._press_gen
+        _log("→ on_press()")
+        self.on_press()
+        threading.Thread(target=self._resync_loop, args=(gen,), daemon=True).start()
+
+    def _release(self):
+        with self._flag_lock:
+            if not self._active:
+                return
+            self._active = False
+        _log("→ on_release()")
+        self.on_release()
+
+    def _resync(self):
+        """Aufnahme beenden, wenn Ctrl+Shift physisch nicht mehr gehalten wird.
+
+        Das Release-Event allein reicht nicht: macOS schaltet den Tap bei Last
+        ab (DisabledByTimeout) oder unterdrückt Events (Passwortfelder,
+        Sperrbildschirm). Fiel das Loslassen in so ein Fenster, lief die
+        Aufnahme endlos – und Shift wurde weiter aus jedem Tastendruck entfernt.
+        """
+        if self._active and not self._modifiers_held():
+            _log("Loslassen verpasst – per Tastenstatus-Abgleich erkannt")
+            self._release()
+
+    def _resync_loop(self, gen):
+        while self._active and self._press_gen == gen:
+            time.sleep(self._RESYNC_INTERVAL)
+            self._resync()
+
+    def _modifiers_held(self) -> bool:
+        flags = CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState)
+        return bool(flags & kCGEventFlagMaskControl) and bool(flags & kCGEventFlagMaskShift)
 
     def start(self):
         if not QUARTZ_AVAILABLE:
@@ -88,24 +142,15 @@ class HotkeyListener:
                     _log(f"Tap disabled (type={event_type:#x}) → re-enable")
                     if tap_holder["tap"] is not None:
                         CGEventTapEnable(tap_holder["tap"], True)
+                    # Während der Tap aus war, kann das Loslassen verloren sein.
+                    self._resync()
                     return event
 
                 # ── Hotkey-Erkennung: nur flagsChanged wertet den Modifier-Status aus.
                 if event_type == kCGEventFlagsChanged:
                     flags = CGEventGetFlags(event)
-                    ctrl  = bool(flags & kCGEventFlagMaskControl)
-                    shift = bool(flags & kCGEventFlagMaskShift)
-
-                    if ctrl and shift:
-                        if not self._active:
-                            self._active = True
-                            _log("→ on_press()")
-                            self.on_press()
-                    else:
-                        if self._active:
-                            self._active = False
-                            _log("→ on_release()")
-                            self.on_release()
+                    self._on_flags(ctrl=bool(flags & kCGEventFlagMaskControl),
+                                   shift=bool(flags & kCGEventFlagMaskShift))
                     return event   # flagsChanged unverändert weiterreichen
 
                 # ── Während der Aufnahme: Ctrl/Shift aus fremden Eingabe-Events
@@ -135,7 +180,7 @@ class HotkeyListener:
                 "CGEventTap konnte NICHT erstellt werden. "
                 "→ Bedienungshilfen-Berechtigung fehlt. "
                 "→ Systemeinstellungen > Datenschutz & Sicherheit > Bedienungshilfen → '+' → "
-                "/Users/noahschmidt/anaconda3/python.app"
+                "/Applications/VoiceShift.app"
             )
             return
 
