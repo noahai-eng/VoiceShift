@@ -40,8 +40,11 @@ launchctl unload ~/Library/LaunchAgents/com.voiceshift.app.plist
 # Status
 launchctl list | grep voiceshift
 
-# Logs live verfolgen
-tail -f /tmp/voiceshift.err.log
+# Logs live verfolgen (/tmp wird bei jedem Neustart geleert)
+tail -f /tmp/voiceshift.out.log
+
+# Dauerhafte Logs mit Uhrzeit (überleben Neustarts, rotiert bei 5 MB)
+tail -f ~/.voiceshift/logs/voiceshift.log
 ```
 
 ## Benötigte Berechtigungen
@@ -82,6 +85,9 @@ Modell, whisper.cpp-Binary und Onboarding-Flag liegen unter `~/.voiceshift/`:
 ~/.voiceshift/
 ├── whisper.cpp/              # Kompiliertes whisper.cpp (~1 GB)
 ├── models/ggml-small.bin     # Whisper-Modell (~466 MB)
+├── recordings/               # Laufende/unerledigte Aufnahmen (werden beim Start nachgeholt)
+│   └── failed/               # Aufnahmen, deren Transkription scheiterte
+├── logs/                     # voiceshift.log + hang-*.txt (Thread-Stacks bei Audio-Hängern)
 └── .onboarding_done          # Marker dass Onboarding gesehen wurde
 ```
 

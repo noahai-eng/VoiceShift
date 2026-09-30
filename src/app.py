@@ -7,6 +7,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import logsetup
+logsetup.install()
+
 from menu_bar import VoiceShiftApp
 
 if __name__ == "__main__":
